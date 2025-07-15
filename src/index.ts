@@ -73,6 +73,29 @@ const configMap = new k8s.core.v1.ConfigMap(
   { provider: cluster.provider }
 )
 
+const nginxConfigMap = new k8s.core.v1.ConfigMap(
+  `${appName}-config`,
+  {
+    metadata: {
+      namespace: ns.metadata.name
+    },
+    data: {
+      'default.conf': `server {
+    listen 80;
+    server_name localhost;
+    location / {
+        root   /usr/share/nginx/html;
+        index  index.html index.htm;
+        add_header 'Cache-Control' 'no-store, no-cache, must-revalidate';
+        add_header 'Pragma' 'no-cache';
+        add_header 'Expires' '0';
+    }
+}`
+    }
+  },
+  { provider: cluster.provider }
+)
+
 const deployment = new k8s.apps.v1.Deployment(
   appName,
   {
@@ -101,12 +124,12 @@ const deployment = new k8s.apps.v1.Deployment(
               // Add resource requests for HPA to work
               resources: {
                 requests: {
-                  cpu: '100m',
-                  memory: '128Mi'
+                  cpu: '100m', // 0.1 CPU cores
+                  memory: '128Mi' // 128MB
                 },
                 limits: {
-                  cpu: '200m',
-                  memory: '256Mi'
+                  cpu: '200m', // 0.2 CPU cores
+                  memory: '256Mi' // 256MB
                 }
               },
               // Add health checks for zero-downtime deployments
@@ -140,7 +163,12 @@ const deployment = new k8s.apps.v1.Deployment(
                 }
               },
               volumeMounts: [
-                { name: 'nginx-index', mountPath: '/usr/share/nginx/html' }
+                { name: 'nginx-index', mountPath: '/usr/share/nginx/html' },
+                {
+                  name: 'nginx-conf',
+                  mountPath: '/etc/nginx/conf.d/default.conf',
+                  subPath: 'default.conf'
+                }
               ]
             }
           ],
@@ -148,6 +176,10 @@ const deployment = new k8s.apps.v1.Deployment(
             {
               name: 'nginx-index',
               configMap: { name: configMap.metadata.name }
+            },
+            {
+              name: 'nginx-conf',
+              configMap: { name: nginxConfigMap.metadata.name }
             }
           ]
         }
@@ -179,7 +211,17 @@ const hpa = new k8s.autoscaling.v2.HorizontalPodAutoscaler(
             name: 'cpu',
             target: {
               type: 'Utilization',
-              averageUtilization: 70
+              averageUtilization: 60
+            }
+          }
+        },
+        {
+          type: 'Resource',
+          resource: {
+            name: 'memory',
+            target: {
+              type: 'Utilization',
+              averageUtilization: 60
             }
           }
         }
