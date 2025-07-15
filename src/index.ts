@@ -16,7 +16,7 @@ const eksVpc = new awsx.ec2.Vpc('eks-auto-mode', {
   cidrBlock: vpcCidrBlock,
   subnetSpecs: [
     // Necessary tags for EKS Auto Mode to identify the subnets for the load balancers.
-    // See: https://kubernetes-sigs.github.io/aws-load-balancer-controller/v2.1/deploy/subnet_discovery/
+    // See: https://kubernetes-sigs.github.io/aws-load-balancer-controller/v2.1/deploy/subnet_discovery
     {
       type: SubnetType.Public,
       tags: {
@@ -75,8 +75,6 @@ const cluster = new eks.Cluster('eks-auto-mode', {
   vpcId: eksVpc.vpcId,
   publicSubnetIds: eksVpc.publicSubnetIds,
   privateSubnetIds: eksVpc.privateSubnetIds,
-  // Do not assign public IPs to worker nodes, so they are not directly accessible from the internet.
-  nodeAssociatePublicIpAddress: false,
   // Enables compute, storage and load balancing for the cluster.
   autoMode: {
     enabled: true
