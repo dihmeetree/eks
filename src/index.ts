@@ -1,4 +1,5 @@
 import * as pulumi from '@pulumi/pulumi'
+import * as aws from '@pulumi/aws'
 import * as awsx from '@pulumi/awsx'
 import * as eks from '@pulumi/eks'
 import * as k8s from '@pulumi/kubernetes'
@@ -7,9 +8,11 @@ import { SubnetType } from '@pulumi/awsx/ec2'
 const config = new pulumi.Config()
 const clusterName = config.require('clusterName')
 
+const vpcCidrBlock = '10.0.0.0/16'
+
 const eksVpc = new awsx.ec2.Vpc('eks-auto-mode', {
   enableDnsHostnames: true,
-  cidrBlock: '10.0.0.0/16',
+  cidrBlock: vpcCidrBlock,
   subnetSpecs: [
     // Necessary tags for EKS Auto Mode to identify the subnets for the load balancers.
     // See: https://kubernetes-sigs.github.io/aws-load-balancer-controller/v2.1/deploy/subnet_discovery/
@@ -29,6 +32,39 @@ const eksVpc = new awsx.ec2.Vpc('eks-auto-mode', {
     }
   ],
   subnetStrategy: 'Auto'
+})
+
+// --- Connect to PlanetScale via AWS PrivateLink ---
+// Docs: https://planetscale.com/docs/vitess/connecting/private-connections
+// The VPC Endpoint Service Name for PlanetScale in us-east-1.
+const planetScaleVpcEndpointServiceName =
+  'com.amazonaws.vpce.us-east-1.vpce-svc-02fef31be60d3fd35'
+
+// Security group to allow MySQL traffic from within the VPC to the PlanetScale endpoint.
+const planetScaleEndpointSg = new aws.ec2.SecurityGroup(
+  'planetscale-endpoint-sg',
+  {
+    vpcId: eksVpc.vpcId,
+    description: 'Allow MySQL traffic to the PlanetScale VPC endpoint.',
+    ingress: [
+      {
+        protocol: 'tcp',
+        fromPort: 3306,
+        toPort: 3306,
+        cidrBlocks: [vpcCidrBlock] // Allow traffic from any source within the VPC.
+      }
+    ]
+  }
+)
+
+// Create the VPC Endpoint for PlanetScale PrivateLink.
+new aws.ec2.VpcEndpoint('planetscale-vpc-endpoint', {
+  vpcId: eksVpc.vpcId,
+  serviceName: planetScaleVpcEndpointServiceName,
+  vpcEndpointType: 'Interface',
+  subnetIds: eksVpc.privateSubnetIds, // Place the endpoint in the private subnets.
+  privateDnsEnabled: true, // This enables the private DNS name resolution.
+  securityGroupIds: [planetScaleEndpointSg.id]
 })
 
 const cluster = new eks.Cluster('eks-auto-mode', {
