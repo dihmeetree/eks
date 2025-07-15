@@ -53,6 +53,13 @@ const ns = new k8s.core.v1.Namespace(
   { provider: cluster.provider }
 )
 
+// Install metrics server via EKS Addon
+const metricsServer = new eks.Addon('metrics-server', {
+  cluster,
+  addonName: 'metrics-server',
+  addonVersion: 'v0.8.0-eksbuild.1'
+})
+
 const configMap = new k8s.core.v1.ConfigMap(
   appName,
   {
@@ -60,7 +67,7 @@ const configMap = new k8s.core.v1.ConfigMap(
       namespace: ns.metadata.name
     },
     data: {
-      'index.html': '<html><body><h1>Hello, Pulumi!</h1></body></html>'
+      'index.html': '<html><body>Hello, World!</body></html>'
     }
   },
   { provider: cluster.provider }
@@ -75,9 +82,17 @@ const deployment = new k8s.apps.v1.Deployment(
     spec: {
       selector: { matchLabels: { app: appName } },
       replicas: 3, // Reduced initial replicas since HPA will manage this
+      strategy: {
+        type: 'RollingUpdate',
+        rollingUpdate: {
+          maxSurge: '100%', // Allow 100% more pods during update for faster rollouts
+          maxUnavailable: 0 // Never allow any pods to be unavailable
+        }
+      },
       template: {
         metadata: { labels: { app: appName } },
         spec: {
+          terminationGracePeriodSeconds: 45,
           containers: [
             {
               name: appName,
@@ -92,6 +107,36 @@ const deployment = new k8s.apps.v1.Deployment(
                 limits: {
                   cpu: '200m',
                   memory: '256Mi'
+                }
+              },
+              // Add health checks for zero-downtime deployments
+              readinessProbe: {
+                httpGet: {
+                  path: '/',
+                  port: 80
+                },
+                initialDelaySeconds: 2,
+                periodSeconds: 3,
+                timeoutSeconds: 2,
+                successThreshold: 1,
+                failureThreshold: 2
+              },
+              livenessProbe: {
+                httpGet: {
+                  path: '/',
+                  port: 80
+                },
+                initialDelaySeconds: 15,
+                periodSeconds: 10,
+                timeoutSeconds: 3,
+                successThreshold: 1,
+                failureThreshold: 3
+              },
+              lifecycle: {
+                preStop: {
+                  exec: {
+                    command: ['/bin/sh', '-c', 'sleep 20']
+                  }
                 }
               },
               volumeMounts: [
@@ -141,7 +186,7 @@ const hpa = new k8s.autoscaling.v2.HorizontalPodAutoscaler(
       ]
     }
   },
-  { provider: cluster.provider, dependsOn: [deployment] }
+  { provider: cluster.provider, dependsOn: [deployment, metricsServer] }
 )
 
 const service = new k8s.core.v1.Service(
@@ -191,7 +236,16 @@ const ingress = new k8s.networking.v1.Ingress(
         'alb.ingress.kubernetes.io/certificate-arn':
           'arn:aws:acm:us-east-1:952189540537:certificate/7d0a60af-5780-400b-97cf-cdf55d3602b8',
         // Optional: Redirect HTTP to HTTPS
-        'alb.ingress.kubernetes.io/ssl-redirect': '443'
+        'alb.ingress.kubernetes.io/ssl-redirect': '443',
+        // ALB health check configuration for smooth rolling updates
+        'alb.ingress.kubernetes.io/healthcheck-path': '/',
+        'alb.ingress.kubernetes.io/healthcheck-interval-seconds': '10',
+        'alb.ingress.kubernetes.io/healthcheck-timeout-seconds': '5',
+        'alb.ingress.kubernetes.io/healthy-threshold-count': '2',
+        'alb.ingress.kubernetes.io/unhealthy-threshold-count': '3',
+        // Connection draining settings for zero-downtime deployments
+        'alb.ingress.kubernetes.io/target-group-attributes':
+          'deregistration_delay.timeout_seconds=30'
       }
     },
     spec: {
