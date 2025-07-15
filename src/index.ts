@@ -104,7 +104,8 @@ const configMap = new k8s.core.v1.ConfigMap(
       namespace: ns.metadata.name
     },
     data: {
-      'index.html': '<html><body>Hello, World!</body></html>'
+      'index.html':
+        '<html><head><title>Snoculars</title></head><body>Hello, World!</body></html>'
     }
   },
   { provider: cluster.provider }

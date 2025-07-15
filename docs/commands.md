@@ -3,3 +3,6 @@ aws eks associate-access-policy --cluster-name scale --principal-arn arn:aws:iam
 
 ## Set Cloudflare API Token
 pulumi config set --secret cloudflare:apiToken <YOUR_API_TOKEN>
+
+## Create KubeConfig for kubectl
+aws eks update-kubeconfig --name scale --region us-east-1
