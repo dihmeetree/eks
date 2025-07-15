@@ -7,6 +7,7 @@
     },
     "dependencies": {
         "@pulumi/awsx": "^2.22.0",
+        "@pulumi/cloudflare": "^6.3.1",
         "@pulumi/eks": "^3.9.1",
         "@pulumi/kubernetes": "^4.23.0",
         "@pulumi/pulumi": "^3.113.0"

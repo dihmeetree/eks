@@ -3,6 +3,7 @@ import * as aws from '@pulumi/aws'
 import * as awsx from '@pulumi/awsx'
 import * as eks from '@pulumi/eks'
 import * as k8s from '@pulumi/kubernetes'
+import * as cloudflare from '@pulumi/cloudflare'
 import { SubnetType } from '@pulumi/awsx/ec2'
 
 const config = new pulumi.Config()
@@ -74,6 +75,8 @@ const cluster = new eks.Cluster('eks-auto-mode', {
   vpcId: eksVpc.vpcId,
   publicSubnetIds: eksVpc.publicSubnetIds,
   privateSubnetIds: eksVpc.privateSubnetIds,
+  // Do not assign public IPs to worker nodes, so they are not directly accessible from the internet.
+  nodeAssociatePublicIpAddress: false,
   // Enables compute, storage and load balancing for the cluster.
   autoMode: {
     enabled: true
@@ -323,7 +326,9 @@ const ingress = new k8s.networking.v1.Ingress(
         'alb.ingress.kubernetes.io/unhealthy-threshold-count': '3',
         // Connection draining settings for zero-downtime deployments
         'alb.ingress.kubernetes.io/target-group-attributes':
-          'deregistration_delay.timeout_seconds=30'
+          'deregistration_delay.timeout_seconds=30',
+        // Enable ARC Zonal Shift for automatic AZ failure recovery
+        'alb.ingress.kubernetes.io/zonal-shift.config.enabled': 'true'
       }
     },
     spec: {
@@ -352,6 +357,16 @@ const ingress = new k8s.networking.v1.Ingress(
   },
   { provider: cluster.provider }
 )
+
+// Add DNS record to Cloudflare
+new cloudflare.DnsRecord('dns-record', {
+  zoneId: 'f3cf3b68ef392b19b15a43b531ff2fcf',
+  name: '@',
+  type: 'CNAME',
+  ttl: 1,
+  content: ingress.status.loadBalancer.ingress[0].hostname,
+  proxied: true
+})
 
 export const url = ingress.status.apply(
   (status) => status?.loadBalancer?.ingress?.[0]?.hostname
