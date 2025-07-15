@@ -1,0 +1,14 @@
+{
+    "name": "eks",
+    "main": "src/index.ts",
+    "devDependencies": {
+        "@types/node": "^18",
+        "typescript": "^5.0.0"
+    },
+    "dependencies": {
+        "@pulumi/awsx": "^2.22.0",
+        "@pulumi/eks": "^3.9.1",
+        "@pulumi/kubernetes": "^4.23.0",
+        "@pulumi/pulumi": "^3.113.0"
+    }
+}
