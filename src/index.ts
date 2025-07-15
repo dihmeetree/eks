@@ -74,7 +74,7 @@ const deployment = new k8s.apps.v1.Deployment(
     },
     spec: {
       selector: { matchLabels: { app: appName } },
-      replicas: 3,
+      replicas: 3, // Reduced initial replicas since HPA will manage this
       template: {
         metadata: { labels: { app: appName } },
         spec: {
@@ -83,6 +83,17 @@ const deployment = new k8s.apps.v1.Deployment(
               name: appName,
               image: appName,
               ports: [{ containerPort: 80 }],
+              // Add resource requests for HPA to work
+              resources: {
+                requests: {
+                  cpu: '100m',
+                  memory: '128Mi'
+                },
+                limits: {
+                  cpu: '200m',
+                  memory: '256Mi'
+                }
+              },
               volumeMounts: [
                 { name: 'nginx-index', mountPath: '/usr/share/nginx/html' }
               ]
@@ -99,6 +110,38 @@ const deployment = new k8s.apps.v1.Deployment(
     }
   },
   { provider: cluster.provider }
+)
+
+// Add HorizontalPodAutoscaler for automatic scaling
+const hpa = new k8s.autoscaling.v2.HorizontalPodAutoscaler(
+  appName,
+  {
+    metadata: {
+      namespace: ns.metadata.name
+    },
+    spec: {
+      scaleTargetRef: {
+        apiVersion: 'apps/v1',
+        kind: 'Deployment',
+        name: deployment.metadata.name
+      },
+      minReplicas: 3,
+      maxReplicas: 100,
+      metrics: [
+        {
+          type: 'Resource',
+          resource: {
+            name: 'cpu',
+            target: {
+              type: 'Utilization',
+              averageUtilization: 70
+            }
+          }
+        }
+      ]
+    }
+  },
+  { provider: cluster.provider, dependsOn: [deployment] }
 )
 
 const service = new k8s.core.v1.Service(
