@@ -97,6 +97,114 @@ const metricsServer = new eks.Addon('metrics-server', {
   addonVersion: 'v0.8.0-eksbuild.1'
 })
 
+const storageClass = new k8s.storage.v1.StorageClass(
+  'storage-class',
+  {
+    metadata: {
+      name: 'auto-ebs-sc',
+      annotations: {
+        'storageclass.kubernetes.io/is-default-class': 'true'
+      }
+    },
+    provisioner: 'ebs.csi.eks.amazonaws.com',
+    volumeBindingMode: 'WaitForFirstConsumer',
+    parameters: {
+      type: 'gp3',
+      encrypted: 'true'
+    }
+  },
+  {
+    provider: cluster.provider
+  }
+)
+
+const pvc = new k8s.core.v1.PersistentVolumeClaim(
+  'pvc',
+  {
+    metadata: {
+      name: 'auto-ebs-claim',
+      namespace: ns.metadata.apply((metadata) => metadata.name)
+    },
+    spec: {
+      accessModes: ['ReadWriteOnce'],
+      storageClassName: storageClass.metadata.apply(
+        (metadata) => metadata.name
+      ),
+      resources: {
+        requests: {
+          storage: '8Gi'
+        }
+      }
+    }
+  },
+  {
+    provider: cluster.provider
+  }
+)
+const statefulWorkload = new k8s.apps.v1.Deployment(
+  'stateful-workload',
+  {
+    metadata: {
+      name: 'inflate-stateful',
+      namespace: ns.metadata.apply((metadata) => metadata.name)
+    },
+    spec: {
+      replicas: 1,
+      selector: {
+        matchLabels: {
+          app: 'inflate-stateful'
+        }
+      },
+      template: {
+        metadata: {
+          labels: {
+            app: 'inflate-stateful'
+          }
+        },
+        spec: {
+          terminationGracePeriodSeconds: 0,
+          nodeSelector: {
+            'eks.amazonaws.com/compute-type': 'auto'
+          },
+          containers: [
+            {
+              name: 'bash',
+              image: 'public.ecr.aws/docker/library/bash:4.4',
+              command: ['/usr/local/bin/bash'],
+              args: [
+                '-c',
+                'while true; do echo $(date -u) >> /data/out.txt; sleep 60; done'
+              ],
+              resources: {
+                requests: {
+                  cpu: '1'
+                }
+              },
+              volumeMounts: [
+                {
+                  name: 'persistent-storage',
+                  mountPath: '/data'
+                }
+              ]
+            }
+          ],
+          volumes: [
+            {
+              name: 'persistent-storage',
+              persistentVolumeClaim: {
+                claimName: pvc.metadata.name
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    provider: cluster.provider
+  }
+)
+
 const configMap = new k8s.core.v1.ConfigMap(
   appName,
   {
@@ -142,7 +250,7 @@ const deployment = new k8s.apps.v1.Deployment(
     },
     spec: {
       selector: { matchLabels: { app: appName } },
-      replicas: 3, // Reduced initial replicas since HPA will manage this
+      replicas: 3,
       strategy: {
         type: 'RollingUpdate',
         rollingUpdate: {
