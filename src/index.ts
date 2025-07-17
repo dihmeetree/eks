@@ -46,12 +46,19 @@ const planetScaleEndpointSg = new aws.ec2.SecurityGroup(
   'planetscale-endpoint-sg',
   {
     vpcId: eksVpc.vpcId,
-    description: 'Allow MySQL traffic to the PlanetScale VPC endpoint.',
+    description:
+      'Allow MySQL and HTTPS traffic to the PlanetScale VPC endpoint.',
     ingress: [
       {
         protocol: 'tcp',
         fromPort: 3306,
         toPort: 3306,
+        cidrBlocks: [vpcCidrBlock] // Allow traffic from any source within the VPC.
+      },
+      {
+        protocol: 'tcp',
+        fromPort: 443,
+        toPort: 443,
         cidrBlocks: [vpcCidrBlock] // Allow traffic from any source within the VPC.
       }
     ]
@@ -517,6 +524,173 @@ const hpa = new k8s.autoscaling.v2.HorizontalPodAutoscaler(
   { provider: cluster.provider, dependsOn: [deployment, metricsServer] }
 )
 
+// --- PlanetScale Connection Tester ---
+const psTesterAppName = 'ps-tester'
+const psTesterConfigMap = new k8s.core.v1.ConfigMap(
+  `${psTesterAppName}-configmap`,
+  {
+    metadata: {
+      namespace: ns.metadata.name
+    },
+    data: {
+      'index.php':
+        "<?php echo shell_exec('curl -s https://us-east.private-connect.psdb.cloud'); ?>",
+      '.htaccess': `RewriteEngine On
+RewriteRule ^ps/?$ /index.php [L]`
+    }
+  },
+  { provider: cluster.provider }
+)
+
+const psTesterDeployment = new k8s.apps.v1.Deployment(
+  psTesterAppName,
+  {
+    metadata: {
+      namespace: ns.metadata.name,
+      name: psTesterAppName
+    },
+    spec: {
+      replicas: 2,
+      selector: { matchLabels: { app: psTesterAppName } },
+      strategy: {
+        type: 'RollingUpdate',
+        rollingUpdate: {
+          maxSurge: '100%', // Allow 100% more pods during update for faster rollouts
+          maxUnavailable: 0 // Never allow any pods to be unavailable
+        }
+      },
+      template: {
+        metadata: { labels: { app: psTesterAppName } },
+        spec: {
+          terminationGracePeriodSeconds: 45,
+          containers: [
+            {
+              name: psTesterAppName,
+              image: 'public.ecr.aws/docker/library/php:apache-bullseye',
+              ports: [{ containerPort: 80 }],
+              command: ['/bin/bash'],
+              args: ['-c', 'a2enmod rewrite && apache2-foreground'],
+              // Add resource requests for HPA to work
+              resources: {
+                requests: {
+                  cpu: '50m', // 0.05 CPU cores
+                  memory: '64Mi' // 64MB
+                },
+                limits: {
+                  cpu: '100m', // 0.1 CPU cores
+                  memory: '128Mi' // 128MB
+                }
+              },
+              // Add health checks for zero-downtime deployments
+              readinessProbe: {
+                httpGet: {
+                  path: '/',
+                  port: 80
+                },
+                initialDelaySeconds: 5,
+                periodSeconds: 3,
+                timeoutSeconds: 2,
+                successThreshold: 1,
+                failureThreshold: 2
+              },
+              livenessProbe: {
+                httpGet: {
+                  path: '/',
+                  port: 80
+                },
+                initialDelaySeconds: 30,
+                periodSeconds: 10,
+                timeoutSeconds: 3,
+                successThreshold: 1,
+                failureThreshold: 3
+              },
+              lifecycle: {
+                preStop: {
+                  exec: {
+                    command: ['/bin/sh', '-c', 'sleep 20']
+                  }
+                }
+              },
+              volumeMounts: [
+                {
+                  name: 'ps-tester-code',
+                  mountPath: '/var/www/html'
+                }
+              ]
+            }
+          ],
+          volumes: [
+            {
+              name: 'ps-tester-code',
+              configMap: {
+                name: psTesterConfigMap.metadata.name
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  { provider: cluster.provider }
+)
+
+const psTesterService = new k8s.core.v1.Service(
+  psTesterAppName,
+  {
+    metadata: {
+      name: psTesterAppName,
+      namespace: ns.metadata.name
+    },
+    spec: {
+      selector: { app: psTesterAppName },
+      ports: [{ port: 80, targetPort: 80 }]
+    }
+  },
+  { provider: cluster.provider, dependsOn: [psTesterDeployment] }
+)
+
+// Add HorizontalPodAutoscaler for ps-tester automatic scaling
+const psTesterHpa = new k8s.autoscaling.v2.HorizontalPodAutoscaler(
+  `${psTesterAppName}-hpa`,
+  {
+    metadata: {
+      namespace: ns.metadata.name
+    },
+    spec: {
+      scaleTargetRef: {
+        apiVersion: 'apps/v1',
+        kind: 'Deployment',
+        name: psTesterDeployment.metadata.name
+      },
+      minReplicas: 2,
+      maxReplicas: 10,
+      metrics: [
+        {
+          type: 'Resource',
+          resource: {
+            name: 'cpu',
+            target: {
+              type: 'Utilization',
+              averageUtilization: 60
+            }
+          }
+        },
+        {
+          type: 'Resource',
+          resource: {
+            name: 'memory',
+            target: {
+              type: 'Utilization',
+              averageUtilization: 60
+            }
+          }
+        }
+      ]
+    }
+  },
+  { provider: cluster.provider, dependsOn: [psTesterDeployment, metricsServer] }
+)
+
 const service = new k8s.core.v1.Service(
   appName,
   {
@@ -590,6 +764,18 @@ const ingress = new k8s.networking.v1.Ingress(
                 backend: {
                   service: {
                     name: service.metadata.name,
+                    port: {
+                      number: 80
+                    }
+                  }
+                }
+              },
+              {
+                path: '/ps',
+                pathType: 'Prefix',
+                backend: {
+                  service: {
+                    name: psTesterService.metadata.name,
                     port: {
                       number: 80
                     }
