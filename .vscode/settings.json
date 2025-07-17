@@ -15,8 +15,5 @@
     "source.fixAll": "always"
   },
   "typescript.tsdk": "node_modules/typescript/lib",
-  "terminal.integrated.defaultProfile.windows": "Command Prompt",
-  "[rust]": {
-    "editor.defaultFormatter": "rust-lang.rust-analyzer"
-  }
+  "terminal.integrated.defaultProfile.windows": "Command Prompt"
 }
