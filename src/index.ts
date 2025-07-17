@@ -81,129 +81,136 @@ const cluster = new eks.Cluster('eks-auto-mode', {
   }
 })
 
-// --- AWS Managed Prometheus and Grafana for Observability ---
-// This section adds comprehensive monitoring to your EKS cluster using:
-// 1. AWS Managed Service for Prometheus (AMP) - Scalable Prometheus service
-// 2. AWS Managed Grafana (AMG) - Fully managed Grafana for visualization
-// 3. Prometheus Scraper - Automatically collects metrics from EKS cluster
-// 4. Pre-configured dashboards for monitoring cluster health, nodes, and workloads
+// // --- AWS Managed Prometheus and Grafana for Observability ---
+// // This section adds comprehensive monitoring to your EKS cluster using:
+// // 1. AWS Managed Service for Prometheus (AMP) - Scalable Prometheus service
+// // 2. AWS Managed Grafana (AMG) - Fully managed Grafana for visualization
+// // 3. Prometheus Scraper - Automatically collects metrics from EKS cluster
+// // 4. Pre-configured dashboards for monitoring cluster health, nodes, and workloads
 
-// Create AMP workspace
-const ampWorkspace = new aws.amp.Workspace('amp-workspace', {
-  alias: `${clusterName}-prometheus`,
-  tags: {
-    Environment: 'production',
-    Cluster: clusterName
-  }
-})
+// // Create AMP workspace
+// const ampWorkspace = new aws.amp.Workspace('amp-workspace', {
+//   alias: `${clusterName}-prometheus`,
+//   tags: {
+//     Environment: 'production',
+//     Cluster: clusterName
+//   }
+// })
 
-// Create IAM role for Grafana service
-const grafanaServiceRole = new aws.iam.Role('grafana-service-role', {
-  name: `AmazonGrafanaServiceRole-${clusterName}`,
-  assumeRolePolicy: JSON.stringify({
-    Version: '2012-10-17',
-    Statement: [
-      {
-        Effect: 'Allow',
-        Principal: {
-          Service: 'grafana.amazonaws.com'
-        },
-        Action: 'sts:AssumeRole'
-      }
-    ]
-  }),
-  managedPolicyArns: [
-    'arn:aws:iam::aws:policy/service-role/AmazonGrafanaServiceRole'
-  ],
-  tags: {
-    Environment: 'production',
-    Cluster: clusterName
-  }
-})
+// // Create IAM role for Grafana service
+// const grafanaServiceRole = new aws.iam.Role('grafana-service-role', {
+//   name: `AmazonGrafanaServiceRole-${clusterName}`,
+//   assumeRolePolicy: JSON.stringify({
+//     Version: '2012-10-17',
+//     Statement: [
+//       {
+//         Effect: 'Allow',
+//         Principal: {
+//           Service: 'grafana.amazonaws.com'
+//         },
+//         Action: 'sts:AssumeRole'
+//       }
+//     ]
+//   }),
+//   managedPolicyArns: [
+//     'arn:aws:iam::aws:policy/service-role/AmazonGrafanaServiceRole'
+//   ],
+//   tags: {
+//     Environment: 'production',
+//     Cluster: clusterName
+//   }
+// })
 
-// Create AMG workspace
-const amgWorkspace = new aws.grafana.Workspace('amg-workspace', {
-  accountAccessType: 'CURRENT_ACCOUNT',
-  authenticationProviders: ['AWS_SSO'],
-  permissionType: 'SERVICE_MANAGED',
-  roleArn: grafanaServiceRole.arn,
-  dataSources: ['PROMETHEUS'],
-  name: `${clusterName}-grafana`,
-  description: `Grafana workspace for EKS cluster ${clusterName}`,
-  tags: {
-    Environment: 'production',
-    Cluster: clusterName
-  }
-})
+// // Create AMG workspace
+// const amgWorkspace = new aws.grafana.Workspace('amg-workspace', {
+//   accountAccessType: 'CURRENT_ACCOUNT',
+//   authenticationProviders: ['AWS_SSO'],
+//   permissionType: 'SERVICE_MANAGED',
+//   roleArn: grafanaServiceRole.arn,
+//   dataSources: ['PROMETHEUS'],
+//   name: `${clusterName}-grafana`,
+//   description: `Grafana workspace for EKS cluster ${clusterName}`,
+//   tags: {
+//     Environment: 'production',
+//     Cluster: clusterName
+//   }
+// })
 
-// Attach policy to allow Grafana to read from AMP
-const grafanaAmpPolicy = new aws.iam.RolePolicy('grafana-amp-policy', {
-  role: grafanaServiceRole.id,
-  policy: ampWorkspace.arn.apply((arn) =>
-    JSON.stringify({
-      Version: '2012-10-17',
-      Statement: [
-        {
-          Effect: 'Allow',
-          Action: [
-            'aps:ListWorkspaces',
-            'aps:DescribeWorkspace',
-            'aps:QueryMetrics',
-            'aps:GetLabels',
-            'aps:GetSeries',
-            'aps:GetMetricMetadata'
-          ],
-          Resource: arn
-        }
-      ]
-    })
-  )
-})
+// // Attach policy to allow Grafana to read from AMP
+// const grafanaAmpPolicy = new aws.iam.RolePolicy('grafana-amp-policy', {
+//   role: grafanaServiceRole.id,
+//   policy: ampWorkspace.arn.apply((arn) =>
+//     JSON.stringify({
+//       Version: '2012-10-17',
+//       Statement: [
+//         {
+//           Effect: 'Allow',
+//           Action: [
+//             'aps:ListWorkspaces',
+//             'aps:DescribeWorkspace',
+//             'aps:QueryMetrics',
+//             'aps:GetLabels',
+//             'aps:GetSeries',
+//             'aps:GetMetricMetadata'
+//           ],
+//           Resource: arn
+//         }
+//       ]
+//     })
+//   )
+// })
 
-// Create Prometheus scraper configuration for EKS
-const prometheusScraper = new aws.amp.Scraper('prometheus-scraper', {
-  alias: `${clusterName}-scraper`,
-  scrapeConfiguration: `
-global:
-  scrape_interval: 15s
-scrape_configs:
-  - job_name: 'kubernetes-apiservers'
-    kubernetes_sd_configs:
-      - role: endpoints
-    scheme: https
-    tls_config:
-      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
-    relabel_configs:
-      - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
-        action: keep
-        regex: default;kubernetes;https
-  - job_name: 'kubernetes-nodes'
-    kubernetes_sd_configs:
-      - role: node
-    scheme: https
-    tls_config:
-      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
-    relabel_configs:
-      - action: labelmap
-        regex: __meta_kubernetes_node_label_(.+)
-`,
-  source: {
-    eks: {
-      clusterArn: cluster.eksCluster.arn,
-      subnetIds: eksVpc.privateSubnetIds
-    }
-  },
-  destination: {
-    amp: {
-      workspaceArn: ampWorkspace.arn
-    }
-  },
-  tags: {
-    Environment: 'production',
-    Cluster: clusterName
-  }
+// // Create Prometheus scraper configuration for EKS
+// const prometheusScraper = new aws.amp.Scraper('prometheus-scraper', {
+//   alias: `${clusterName}-scraper`,
+//   scrapeConfiguration: `
+// global:
+//   scrape_interval: 15s
+// scrape_configs:
+//   - job_name: 'kubernetes-apiservers'
+//     kubernetes_sd_configs:
+//       - role: endpoints
+//     scheme: https
+//     tls_config:
+//       ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+//     bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+//     relabel_configs:
+//       - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+//         action: keep
+//         regex: default;kubernetes;https
+//   - job_name: 'kubernetes-nodes'
+//     kubernetes_sd_configs:
+//       - role: node
+//     scheme: https
+//     tls_config:
+//       ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+//     bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+//     relabel_configs:
+//       - action: labelmap
+//         regex: __meta_kubernetes_node_label_(.+)
+// `,
+//   source: {
+//     eks: {
+//       clusterArn: cluster.eksCluster.arn,
+//       subnetIds: eksVpc.privateSubnetIds
+//     }
+//   },
+//   destination: {
+//     amp: {
+//       workspaceArn: ampWorkspace.arn
+//     }
+//   },
+//   tags: {
+//     Environment: 'production',
+//     Cluster: clusterName
+//   }
+// })
+
+// Install metrics server via EKS Addon
+const metricsServer = new eks.Addon('metrics-server', {
+  cluster,
+  addonName: 'metrics-server',
+  addonVersion: 'v0.8.0-eksbuild.1'
 })
 
 const appName = 'nginx'
@@ -214,13 +221,6 @@ const ns = new k8s.core.v1.Namespace(
   },
   { provider: cluster.provider }
 )
-
-// Install metrics server via EKS Addon
-const metricsServer = new eks.Addon('metrics-server', {
-  cluster,
-  addonName: 'metrics-server',
-  addonVersion: 'v0.8.0-eksbuild.1'
-})
 
 const storageClass = new k8s.storage.v1.StorageClass(
   'storage-class',
@@ -600,22 +600,22 @@ new cloudflare.DnsRecord('dns-record', {
   proxied: true
 })
 
-// Create Grafana data source for AMP
-const grafanaDataSource = new aws.grafana.WorkspaceApiKey(
-  'grafana-datasource-key',
-  {
-    keyName: 'prometheus-datasource',
-    keyRole: 'ADMIN',
-    secondsToLive: 3600 * 24 * 30, // 30 days
-    workspaceId: amgWorkspace.id
-  }
-)
+// // Create Grafana data source for AMP
+// const grafanaDataSource = new aws.grafana.WorkspaceApiKey(
+//   'grafana-datasource-key',
+//   {
+//     keyName: 'prometheus-datasource',
+//     keyRole: 'ADMIN',
+//     secondsToLive: 3600 * 24 * 30, // 30 days
+//     workspaceId: amgWorkspace.id
+//   }
+// )
 
-// Export monitoring endpoints
-export const prometheusWorkspaceUrl = ampWorkspace.prometheusEndpoint
-export const grafanaWorkspaceUrl = amgWorkspace.endpoint
-export const prometheusWorkspaceId = ampWorkspace.id
-export const grafanaWorkspaceId = amgWorkspace.id
+// // Export monitoring endpoints
+// export const prometheusWorkspaceUrl = ampWorkspace.prometheusEndpoint
+// export const grafanaWorkspaceUrl = amgWorkspace.endpoint
+// export const prometheusWorkspaceId = ampWorkspace.id
+// export const grafanaWorkspaceId = amgWorkspace.id
 
 export const url = ingress.status.apply(
   (status) => status?.loadBalancer?.ingress?.[0]?.hostname
