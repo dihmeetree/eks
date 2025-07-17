@@ -72,6 +72,21 @@ const cluster = new eks.Cluster('eks-auto-mode', {
   name: clusterName,
   // EKS Auto Mode requires Access Entries, use either the `Api` or `ApiAndConfigMap` authentication mode.
   authenticationMode: eks.AuthenticationMode.Api,
+  accessEntries: {
+    // This allows us to view the cluster's resources in the AWS console.
+    'root-user': {
+      principalArn: 'arn:aws:iam::952189540537:root',
+      accessPolicies: {
+        AmazonEKSClusterAdminPolicy: {
+          policyArn:
+            'arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy',
+          accessScope: {
+            type: 'cluster'
+          }
+        }
+      }
+    }
+  },
   vpcId: eksVpc.vpcId,
   publicSubnetIds: eksVpc.publicSubnetIds,
   privateSubnetIds: eksVpc.privateSubnetIds,
