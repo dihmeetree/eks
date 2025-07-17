@@ -8,8 +8,8 @@ Horizontal Pod Autoscaling automatically scales the number of pods in a deployme
 
 ### Requirements:
 
-*   **Metrics Server**: The HPA needs a source for metrics. The `metrics-server` is a common choice and can be installed as an EKS Addon.
-*   **Resource Requests**: Pods in the deployment *must* have CPU resource requests defined in their spec. The HPA uses this value to calculate the utilization percentage.
+- **Metrics Server**: The HPA needs a source for metrics. The `metrics-server` is a common choice and can be installed as an EKS Addon.
+- **Resource Requests**: Pods in the deployment _must_ have CPU resource requests defined in their spec. The HPA uses this value to calculate the utilization percentage.
 
 ### HPA Configuration:
 
@@ -45,7 +45,7 @@ const hpa = new k8s.autoscaling.v2.HorizontalPodAutoscaler(
     }
   },
   { provider: cluster.provider, dependsOn: [deployment, metricsServer] }
-);
+)
 ```
 
 ## 2. Achieving Zero-Downtime Deployments
@@ -58,9 +58,9 @@ To prevent this, we need a multi-layered approach involving deployment strategie
 
 The first step is to configure the deployment's `strategy` to ensure that there are always enough healthy pods available to serve traffic during an update.
 
-*   `type: 'RollingUpdate'`: Specifies the update strategy.
-*   `maxSurge`: The maximum number of pods that can be created over the desired number of pods. `100%` is aggressive and allows for faster rollouts by doubling the number of pods temporarily.
-*   `maxUnavailable`: The maximum number of pods that can be unavailable during the update. Setting this to `0` is critical for zero-downtime as it ensures that your application's capacity is never reduced.
+- `type: 'RollingUpdate'`: Specifies the update strategy.
+- `maxSurge`: The maximum number of pods that can be created over the desired number of pods. `100%` is aggressive and allows for faster rollouts by doubling the number of pods temporarily.
+- `maxUnavailable`: The maximum number of pods that can be unavailable during the update. Setting this to `0` is critical for zero-downtime as it ensures that your application's capacity is never reduced.
 
 ```typescript
 // src/index.ts (inside Deployment spec)
@@ -78,8 +78,8 @@ The first step is to configure the deployment's `strategy` to ensure that there 
 
 Health checks tell Kubernetes whether a pod is ready to receive traffic (`readinessProbe`) or if it's unhealthy and needs to be restarted (`livenessProbe`).
 
-*   **`readinessProbe`**: Kubernetes will not route traffic to a pod until this probe succeeds. This is essential to prevent traffic from being sent to a pod that is still starting up.
-*   **`livenessProbe`**: If this probe fails, Kubernetes will kill the container and restart it. This helps recover from deadlocks or unresponsive application states.
+- **`readinessProbe`**: Kubernetes will not route traffic to a pod until this probe succeeds. This is essential to prevent traffic from being sent to a pod that is still starting up.
+- **`livenessProbe`**: If this probe fails, Kubernetes will kill the container and restart it. This helps recover from deadlocks or unresponsive application states.
 
 ```typescript
 // src/index.ts (inside container spec)
@@ -114,8 +114,8 @@ When using the AWS Load Balancer Controller, the ALB has its own health checks a
 
 We use annotations on the `Ingress` resource to configure the ALB's behavior.
 
-*   **ALB Health Checks**: These annotations configure the health checks performed by the ALB target group. They should be slightly less aggressive than the pod's readiness probe to ensure the ALB marks the pod as healthy.
-*   **Connection Draining (`deregistration_delay`)**: This is a critical setting. It tells the ALB to wait for a specified duration (e.g., 30 seconds) before it finishes deregistering a pod. This allows any in-flight requests to complete successfully instead of being abruptly cut off.
+- **ALB Health Checks**: These annotations configure the health checks performed by the ALB target group. They should be slightly less aggressive than the pod's readiness probe to ensure the ALB marks the pod as healthy.
+- **Connection Draining (`deregistration_delay`)**: This is a critical setting. It tells the ALB to wait for a specified duration (e.g., 30 seconds) before it finishes deregistering a pod. This allows any in-flight requests to complete successfully instead of being abruptly cut off.
 
 ```typescript
 // src/index.ts (inside Ingress metadata annotations)
@@ -134,15 +134,15 @@ Even with all the above configurations, a subtle race condition can still cause 
 
 1.  A pod is told to terminate.
 2.  The pod's endpoint is removed from the Kubernetes service. The ALB is notified to start deregistering the pod.
-3.  The `nginx` process inside the container receives the termination signal (`SIGTERM`) and shuts down *immediately*.
-4.  For a brief moment, the ALB might still send a request to the pod *after* Nginx has shut down but *before* the deregistration is complete. This results in a 502 error.
+3.  The `nginx` process inside the container receives the termination signal (`SIGTERM`) and shuts down _immediately_.
+4.  For a brief moment, the ALB might still send a request to the pod _after_ Nginx has shut down but _before_ the deregistration is complete. This results in a 502 error.
 
 To solve this, we use a `preStop` lifecycle hook.
 
-*   **`preStop` hook**: This hook executes a command *before* the container is sent the termination signal. We add a `sleep 20` command. This forces the pod to wait for 20 seconds before it starts shutting down.
-*   **`terminationGracePeriodSeconds`**: This is the total time a pod has to shut down. It must be longer than the `preStop` sleep time plus the ALB's deregistration delay.
+- **`preStop` hook**: This hook executes a command _before_ the container is sent the termination signal. We add a `sleep 20` command. This forces the pod to wait for 20 seconds before it starts shutting down.
+- **`terminationGracePeriodSeconds`**: This is the total time a pod has to shut down. It must be longer than the `preStop` sleep time plus the ALB's deregistration delay.
 
-This pause gives the ALB more than enough time to complete the deregistration process and stop sending traffic to the pod *before* the Nginx process shuts down.
+This pause gives the ALB more than enough time to complete the deregistration process and stop sending traffic to the pod _before_ the Nginx process shuts down.
 
 ```typescript
 // src/index.ts (inside Pod spec)
@@ -163,4 +163,4 @@ This pause gives the ALB more than enough time to complete the deregistration pr
           ]
 ```
 
-By combining these four strategies, we create a robust system that can automatically scale based on demand and perform deployments with zero user-facing downtime. 
+By combining these four strategies, we create a robust system that can automatically scale based on demand and perform deployments with zero user-facing downtime.
