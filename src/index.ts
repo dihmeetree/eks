@@ -103,130 +103,158 @@ const cluster = new eks.Cluster('eks-auto-mode', {
   }
 })
 
-// // --- AWS Managed Prometheus and Grafana for Observability ---
-// // This section adds comprehensive monitoring to your EKS cluster using:
-// // 1. AWS Managed Service for Prometheus (AMP) - Scalable Prometheus service
-// // 2. AWS Managed Grafana (AMG) - Fully managed Grafana for visualization
-// // 3. Prometheus Scraper - Automatically collects metrics from EKS cluster
-// // 4. Pre-configured dashboards for monitoring cluster health, nodes, and workloads
+// --- AWS Managed Prometheus and Grafana for Observability ---
+// This section adds comprehensive monitoring to your EKS cluster using:
+// 1. AWS Managed Service for Prometheus (AMP) - Scalable Prometheus service
+// 2. AWS Managed Grafana (AMG) - Fully managed Grafana for visualization
+// 3. Prometheus Scraper - Automatically collects metrics from EKS cluster
+// 4. Pre-configured dashboards for monitoring cluster health, nodes, and workloads
 
-// // Create AMP workspace
-// const ampWorkspace = new aws.amp.Workspace('amp-workspace', {
-//   alias: `${clusterName}-prometheus`,
-//   tags: {
-//     Environment: 'production',
-//     Cluster: clusterName
-//   }
-// })
+// Create AMP workspace
+const ampWorkspace = new aws.amp.Workspace('amp-workspace', {
+  alias: `${clusterName}-prometheus`,
+  tags: {
+    Environment: 'production',
+    Cluster: clusterName
+  }
+})
 
-// // Create IAM role for Grafana service
-// const grafanaServiceRole = new aws.iam.Role('grafana-service-role', {
-//   name: `AmazonGrafanaServiceRole-${clusterName}`,
-//   assumeRolePolicy: JSON.stringify({
-//     Version: '2012-10-17',
-//     Statement: [
-//       {
-//         Effect: 'Allow',
-//         Principal: {
-//           Service: 'grafana.amazonaws.com'
-//         },
-//         Action: 'sts:AssumeRole'
-//       }
-//     ]
-//   }),
-//   managedPolicyArns: [
-//     'arn:aws:iam::aws:policy/service-role/AmazonGrafanaServiceRole'
-//   ],
-//   tags: {
-//     Environment: 'production',
-//     Cluster: clusterName
-//   }
-// })
+// Create IAM role for Grafana service
+const grafanaServiceRole = new aws.iam.Role('grafana-service-role', {
+  name: `AmazonGrafanaServiceRole-${clusterName}`,
+  assumeRolePolicy: JSON.stringify({
+    Version: '2012-10-17',
+    Statement: [
+      {
+        Effect: 'Allow',
+        Principal: {
+          Service: 'grafana.amazonaws.com'
+        },
+        Action: 'sts:AssumeRole'
+      }
+    ]
+  }),
+  managedPolicyArns: [
+    'arn:aws:iam::aws:policy/service-role/AmazonGrafanaServiceRole'
+  ],
+  tags: {
+    Environment: 'production',
+    Cluster: clusterName
+  }
+})
 
-// // Create AMG workspace
-// const amgWorkspace = new aws.grafana.Workspace('amg-workspace', {
-//   accountAccessType: 'CURRENT_ACCOUNT',
-//   authenticationProviders: ['AWS_SSO'],
-//   permissionType: 'SERVICE_MANAGED',
-//   roleArn: grafanaServiceRole.arn,
-//   dataSources: ['PROMETHEUS'],
-//   name: `${clusterName}-grafana`,
-//   description: `Grafana workspace for EKS cluster ${clusterName}`,
-//   tags: {
-//     Environment: 'production',
-//     Cluster: clusterName
-//   }
-// })
+// Create AMG workspace
+const amgWorkspace = new aws.grafana.Workspace('amg-workspace', {
+  accountAccessType: 'CURRENT_ACCOUNT',
+  authenticationProviders: ['AWS_SSO'],
+  permissionType: 'SERVICE_MANAGED',
+  roleArn: grafanaServiceRole.arn,
+  dataSources: ['PROMETHEUS'],
+  name: `${clusterName}-grafana`,
+  description: `Grafana workspace for EKS cluster ${clusterName}`,
+  tags: {
+    Environment: 'production',
+    Cluster: clusterName
+  }
+})
 
-// // Attach policy to allow Grafana to read from AMP
-// const grafanaAmpPolicy = new aws.iam.RolePolicy('grafana-amp-policy', {
-//   role: grafanaServiceRole.id,
-//   policy: ampWorkspace.arn.apply((arn) =>
-//     JSON.stringify({
-//       Version: '2012-10-17',
-//       Statement: [
-//         {
-//           Effect: 'Allow',
-//           Action: [
-//             'aps:ListWorkspaces',
-//             'aps:DescribeWorkspace',
-//             'aps:QueryMetrics',
-//             'aps:GetLabels',
-//             'aps:GetSeries',
-//             'aps:GetMetricMetadata'
-//           ],
-//           Resource: arn
-//         }
-//       ]
-//     })
-//   )
-// })
+// Attach policy to allow Grafana to read from AMP
+const grafanaAmpPolicy = new aws.iam.RolePolicy('grafana-amp-policy', {
+  role: grafanaServiceRole.id,
+  policy: ampWorkspace.arn.apply((arn) =>
+    JSON.stringify({
+      Version: '2012-10-17',
+      Statement: [
+        {
+          Effect: 'Allow',
+          Action: [
+            'aps:ListWorkspaces',
+            'aps:DescribeWorkspace',
+            'aps:QueryMetrics',
+            'aps:GetLabels',
+            'aps:GetSeries',
+            'aps:GetMetricMetadata'
+          ],
+          Resource: arn
+        }
+      ]
+    })
+  )
+})
 
-// // Create Prometheus scraper configuration for EKS
-// const prometheusScraper = new aws.amp.Scraper('prometheus-scraper', {
-//   alias: `${clusterName}-scraper`,
-//   scrapeConfiguration: `
-// global:
-//   scrape_interval: 15s
-// scrape_configs:
-//   - job_name: 'kubernetes-apiservers'
-//     kubernetes_sd_configs:
-//       - role: endpoints
-//     scheme: https
-//     tls_config:
-//       ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-//     bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
-//     relabel_configs:
-//       - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
-//         action: keep
-//         regex: default;kubernetes;https
-//   - job_name: 'kubernetes-nodes'
-//     kubernetes_sd_configs:
-//       - role: node
-//     scheme: https
-//     tls_config:
-//       ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-//     bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
-//     relabel_configs:
-//       - action: labelmap
-//         regex: __meta_kubernetes_node_label_(.+)
-// `,
-//   source: {
-//     eks: {
-//       clusterArn: cluster.eksCluster.arn,
-//       subnetIds: eksVpc.privateSubnetIds
-//     }
-//   },
-//   destination: {
-//     amp: {
-//       workspaceArn: ampWorkspace.arn
-//     }
-//   },
-//   tags: {
-//     Environment: 'production',
-//     Cluster: clusterName
-//   }
-// })
+// Create Prometheus scraper configuration for EKS
+const prometheusScraper = new aws.amp.Scraper(
+  'prometheus-scraper',
+  {
+    alias: `${clusterName}-scraper`,
+    scrapeConfiguration: `
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: 'kubernetes-apiservers'
+    kubernetes_sd_configs:
+      - role: endpoints
+    scheme: https
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: default;kubernetes;https
+  - job_name: 'kubernetes-nodes'
+    kubernetes_sd_configs:
+      - role: node
+    scheme: https
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+  - job_name: 'kubernetes-pods'
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: kubernetes_pod_name
+`,
+    source: {
+      eks: {
+        clusterArn: cluster.eksCluster.arn,
+        subnetIds: eksVpc.privateSubnetIds
+      }
+    },
+    destination: {
+      amp: {
+        workspaceArn: ampWorkspace.arn
+      }
+    },
+    tags: {
+      Environment: 'production',
+      Cluster: clusterName
+    }
+  },
+  { dependsOn: [cluster, ampWorkspace] }
+)
 
 // Install metrics server via EKS Addon
 const metricsServer = new eks.Addon('metrics-server', {
@@ -524,173 +552,6 @@ const hpa = new k8s.autoscaling.v2.HorizontalPodAutoscaler(
   { provider: cluster.provider, dependsOn: [deployment, metricsServer] }
 )
 
-// --- PlanetScale Connection Tester ---
-const psTesterAppName = 'ps-tester'
-const psTesterConfigMap = new k8s.core.v1.ConfigMap(
-  `${psTesterAppName}-configmap`,
-  {
-    metadata: {
-      namespace: ns.metadata.name
-    },
-    data: {
-      'index.php':
-        "<?php echo shell_exec('curl -s https://us-east.private-connect.psdb.cloud'); ?>",
-      '.htaccess': `RewriteEngine On
-RewriteRule ^ps/?$ /index.php [L]`
-    }
-  },
-  { provider: cluster.provider }
-)
-
-const psTesterDeployment = new k8s.apps.v1.Deployment(
-  psTesterAppName,
-  {
-    metadata: {
-      namespace: ns.metadata.name,
-      name: psTesterAppName
-    },
-    spec: {
-      replicas: 2,
-      selector: { matchLabels: { app: psTesterAppName } },
-      strategy: {
-        type: 'RollingUpdate',
-        rollingUpdate: {
-          maxSurge: '100%', // Allow 100% more pods during update for faster rollouts
-          maxUnavailable: 0 // Never allow any pods to be unavailable
-        }
-      },
-      template: {
-        metadata: { labels: { app: psTesterAppName } },
-        spec: {
-          terminationGracePeriodSeconds: 45,
-          containers: [
-            {
-              name: psTesterAppName,
-              image: 'public.ecr.aws/docker/library/php:apache-bullseye',
-              ports: [{ containerPort: 80 }],
-              command: ['/bin/bash'],
-              args: ['-c', 'a2enmod rewrite && apache2-foreground'],
-              // Add resource requests for HPA to work
-              resources: {
-                requests: {
-                  cpu: '50m', // 0.05 CPU cores
-                  memory: '64Mi' // 64MB
-                },
-                limits: {
-                  cpu: '100m', // 0.1 CPU cores
-                  memory: '128Mi' // 128MB
-                }
-              },
-              // Add health checks for zero-downtime deployments
-              readinessProbe: {
-                httpGet: {
-                  path: '/',
-                  port: 80
-                },
-                initialDelaySeconds: 5,
-                periodSeconds: 3,
-                timeoutSeconds: 2,
-                successThreshold: 1,
-                failureThreshold: 2
-              },
-              livenessProbe: {
-                httpGet: {
-                  path: '/',
-                  port: 80
-                },
-                initialDelaySeconds: 30,
-                periodSeconds: 10,
-                timeoutSeconds: 3,
-                successThreshold: 1,
-                failureThreshold: 3
-              },
-              lifecycle: {
-                preStop: {
-                  exec: {
-                    command: ['/bin/sh', '-c', 'sleep 20']
-                  }
-                }
-              },
-              volumeMounts: [
-                {
-                  name: 'ps-tester-code',
-                  mountPath: '/var/www/html'
-                }
-              ]
-            }
-          ],
-          volumes: [
-            {
-              name: 'ps-tester-code',
-              configMap: {
-                name: psTesterConfigMap.metadata.name
-              }
-            }
-          ]
-        }
-      }
-    }
-  },
-  { provider: cluster.provider }
-)
-
-const psTesterService = new k8s.core.v1.Service(
-  psTesterAppName,
-  {
-    metadata: {
-      name: psTesterAppName,
-      namespace: ns.metadata.name
-    },
-    spec: {
-      selector: { app: psTesterAppName },
-      ports: [{ port: 80, targetPort: 80 }]
-    }
-  },
-  { provider: cluster.provider, dependsOn: [psTesterDeployment] }
-)
-
-// Add HorizontalPodAutoscaler for ps-tester automatic scaling
-const psTesterHpa = new k8s.autoscaling.v2.HorizontalPodAutoscaler(
-  `${psTesterAppName}-hpa`,
-  {
-    metadata: {
-      namespace: ns.metadata.name
-    },
-    spec: {
-      scaleTargetRef: {
-        apiVersion: 'apps/v1',
-        kind: 'Deployment',
-        name: psTesterDeployment.metadata.name
-      },
-      minReplicas: 2,
-      maxReplicas: 10,
-      metrics: [
-        {
-          type: 'Resource',
-          resource: {
-            name: 'cpu',
-            target: {
-              type: 'Utilization',
-              averageUtilization: 60
-            }
-          }
-        },
-        {
-          type: 'Resource',
-          resource: {
-            name: 'memory',
-            target: {
-              type: 'Utilization',
-              averageUtilization: 60
-            }
-          }
-        }
-      ]
-    }
-  },
-  { provider: cluster.provider, dependsOn: [psTesterDeployment, metricsServer] }
-)
-
 const service = new k8s.core.v1.Service(
   appName,
   {
@@ -769,18 +630,6 @@ const ingress = new k8s.networking.v1.Ingress(
                     }
                   }
                 }
-              },
-              {
-                path: '/ps',
-                pathType: 'Prefix',
-                backend: {
-                  service: {
-                    name: psTesterService.metadata.name,
-                    port: {
-                      number: 80
-                    }
-                  }
-                }
               }
             ]
           }
@@ -801,22 +650,25 @@ new cloudflare.DnsRecord('dns-record', {
   proxied: true
 })
 
-// // Create Grafana data source for AMP
-// const grafanaDataSource = new aws.grafana.WorkspaceApiKey(
-//   'grafana-datasource-key',
-//   {
-//     keyName: 'prometheus-datasource',
-//     keyRole: 'ADMIN',
-//     secondsToLive: 3600 * 24 * 30, // 30 days
-//     workspaceId: amgWorkspace.id
-//   }
-// )
+// Create Grafana data source for AMP
+const grafanaDataSource = new aws.grafana.WorkspaceApiKey(
+  'grafana-datasource-key',
+  {
+    keyName: 'prometheus-datasource',
+    keyRole: 'ADMIN',
+    secondsToLive: 3600 * 24 * 30, // 30 days
+    workspaceId: amgWorkspace.id
+  },
+  { dependsOn: [amgWorkspace, grafanaAmpPolicy] }
+)
 
-// // Export monitoring endpoints
-// export const prometheusWorkspaceUrl = ampWorkspace.prometheusEndpoint
-// export const grafanaWorkspaceUrl = amgWorkspace.endpoint
-// export const prometheusWorkspaceId = ampWorkspace.id
-// export const grafanaWorkspaceId = amgWorkspace.id
+// Export monitoring endpoints
+export const prometheusWorkspaceUrl = ampWorkspace.prometheusEndpoint
+export const grafanaWorkspaceUrl = amgWorkspace.endpoint
+export const prometheusWorkspaceId = ampWorkspace.id
+export const grafanaWorkspaceId = amgWorkspace.id
+export const prometheusScraperId = prometheusScraper.id
+export const grafanaApiKey = grafanaDataSource.key
 
 export const url = ingress.status.apply(
   (status) => status?.loadBalancer?.ingress?.[0]?.hostname
