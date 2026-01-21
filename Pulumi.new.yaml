@@ -1,5 +1,0 @@
-config:
-  eks:clusterName: scale
-  eks:region: us-east-1
-  cloudflare:apiToken:
-    secure: AAABALSoKxoGVcC4Qyf0Lv+y3CLPgQYnbOGX/byoLz+N/O8bAooI85rJW4ECMVPVGyc5+2IA5aGd+fLrUYUEPzQkrBGwM55L

@@ -1,15 +1,28 @@
 {
-  "name": "eks",
-  "main": "src/index.ts",
-  "devDependencies": {
-    "@types/node": "^24.0.14",
-    "typescript": "^5.8.3"
+  "name": "expo-hello-world",
+  "version": "1.0.0",
+  "main": "expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "tunnel": "expo start --tunnel",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
   },
   "dependencies": {
-    "@pulumi/awsx": "^2.22.0",
-    "@pulumi/cloudflare": "^6.4.1",
-    "@pulumi/eks": "^3.9.1",
-    "@pulumi/kubernetes": "^4.23.0",
-    "@pulumi/pulumi": "^3.183.0"
-  }
+    "@expo/ngrok": "^4.1.3",
+    "expo": "~52.0.0",
+    "expo-asset": "^12.0.12",
+    "expo-constants": "^18.0.13",
+    "expo-font": "^14.0.11",
+    "expo-status-bar": "~2.0.0",
+    "react": "18.3.1",
+    "react-native": "0.76.5"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@types/react": "~18.3.0",
+    "typescript": "~5.3.3"
+  },
+  "private": true
 }
